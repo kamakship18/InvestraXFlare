@@ -29,7 +29,7 @@ app.use('/api/influencers', require('./routes/influencerRoutes'));
 app.use('/api/predictions', require('./routes/predictionDataRoutes'));
 app.use('/api/dao', require('./routes/daoRoutes'));
 app.use('/api/tokens', require('./routes/tokenRoutes'));
-app.use('/api/fetchai', require('./routes/fetchaiRoutes'));
+app.use('/api', require('./routes/validationRoutes')); // Web scraping + AI validation
 
 app.get('/', (req, res) => {
   res.json({
@@ -65,7 +65,7 @@ app.use((error, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 5004;
+const PORT = process.env.PORT || 5008;
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

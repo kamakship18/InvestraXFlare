@@ -23,7 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import Navbar from '@/components/layout/Navbar';
-import FetchAIEnhancedInfluencerCard from '@/components/ui/FetchAIEnhancedInfluencerCard';
+import TokenEnabledPredictionCard from '@/components/ui/TokenEnabledPredictionCard';
 
 // mock data
 const trustData = {
@@ -335,10 +335,11 @@ export default function InfluencerDashboard() {
             <div className="overflow-x-auto pb-4">
               <div className="flex gap-4" style={{ minWidth: 'max-content' }}>
                 {activePredictions.map((prediction) => (
-                  <FetchAIEnhancedInfluencerCard 
+                  <TokenEnabledPredictionCard 
                     key={prediction.id} 
                     prediction={prediction}
-                    darkMode={darkMode}
+                    userTokens={null}
+                    onViewPrediction={() => {}}
                   />
                 ))}
               </div>
