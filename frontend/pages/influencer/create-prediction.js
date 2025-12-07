@@ -8,6 +8,11 @@ import { useTheme } from 'next-themes';
 import { ethers } from "ethers";
 import { contractABI } from "../../contract/abi";
 import { contractAddress } from "../../contract/contractAddress";
+
+// === Flare Integration ===
+import FLARE_CONFIG from '@/lib/flareConfig';
+import flareDaoAbi from '@/lib/abi/flareDaoAbi.json';
+
 import Navbar from '@/components/layout/Navbar';
 import { 
   Card, 
@@ -390,15 +395,111 @@ const CreatePredictionPage = () => {
     }
 
     try {
-      // Submit to DAO for voting (all predictions go through DAO now)
-      await submitToDAO();
+      // Try to submit to Flare contract if wallet is connected
+      if (userAddress) {
+        await submitToFlareContract();
+      } else {
+        toast.error("Please connect your wallet first");
+      }
     } catch (err) {
-      console.error("Transaction failed:", err);
-      toast.error("Transaction failed: " + (err.message || "Unknown error"));
+      console.error("Submission failed:", err);
+      toast.error("Submission failed: " + (err.message || "Unknown error"));
     }
   };
 
 
+
+  // Function to submit prediction to Flare contract
+  const submitToFlareContract = async () => {
+    try {
+      if (!window.ethereum) {
+        throw new Error('MetaMask not detected');
+      }
+
+      console.log('🔥 Submitting prediction to Flare contract...');
+      
+      // Switch to Flare network
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: `0x${FLARE_CONFIG.chainId.toString(16)}` }],
+        });
+      } catch (switchError) {
+        if (switchError.code === 4902) {
+          // Add network if not present
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [FLARE_CONFIG.networkParams],
+          });
+        } else {
+          throw switchError;
+        }
+      }
+
+      // Create provider and signer for transaction
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      // Create contract instance
+      const contract = new ethers.Contract(
+        FLARE_CONFIG.predictionContractAddress,
+        flareDaoAbi,
+        signer
+      );
+
+      // Prepare prediction data
+      const title = `${formData.asset} ${formData.predictionType === 'priceTarget' ? 'Target: ' + formData.targetPrice : formData.targetPrice}`;
+      const description = formData.reasoning;
+      const category = formData.category;
+      const assetSymbol = formData.asset.split(' - ')[0] || formData.asset; // Extract symbol (e.g., "BTC" from "BTC - Bitcoin")
+      const votingPeriod = 7 * 24 * 60 * 60; // 7 days in seconds
+      const stakedAmount = ethers.parseUnits('0.1', 18); // For demo: 0.1 FXRP (minimum stake)
+
+      console.log('📤 Transaction data:', {
+        title,
+        description,
+        category,
+        assetSymbol,
+        votingPeriod,
+        stakedAmount: stakedAmount.toString()
+      });
+
+      // Call createPrediction on contract
+      const tx = await contract.createPrediction(
+        title,
+        description,
+        category,
+        assetSymbol,
+        votingPeriod,
+        stakedAmount
+      );
+
+      toast.promise(
+        tx.wait(),
+        {
+          loading: '⏳ Submitting to Flare blockchain...',
+          success: '✅ Prediction created on-chain!',
+          error: '❌ Transaction failed',
+        }
+      );
+
+      await tx.wait();
+
+      console.log('✅ Prediction submitted to Flare contract!');
+      console.log('   Transaction hash:', tx.hash);
+      console.log('   View on explorer: https://coston-explorer.flare.network/tx/' + tx.hash);
+
+      // Also submit metadata to backend for indexing
+      await submitToDAO();
+
+      return tx.hash;
+
+    } catch (error) {
+      console.error('❌ Error submitting to Flare contract:', error);
+      toast.error('Failed to submit to Flare: ' + error.message);
+      throw error;
+    }
+  };
 
   const submitToDAO = async () => {
     try {

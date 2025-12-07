@@ -13,14 +13,13 @@ In the world of finance, there's a growing distrust in self-proclaimed “finflu
 - ✅ Using **AI** to explain and validate reasoning behind investment ideas.
 - ✅ Ensuring **transparency, credibility, and decentralization** in financial forecasting.
 
-- **Live Demo:** [https://hack-india25-maverick1.vercel.app/](https://hack-india25-maverick1.vercel.app/)
-
 ## 🚀 **Technology Stack**
 
 - **Frontend:** Next.js, React, Tailwind CSS, Shadcn UI
 - **Backend:** Node.js, Express.js, RESTful APIs
 - **Database:** MongoDB Atlas (document storage, user profiles)
-- **Web3:** Ethereum, MetaMask, Ethers.js v6, Solidity (Smart Contracts)
+- **Web3:** Ethereum & **Flare Network**, MetaMask, Ethers.js v6, Solidity (Smart Contracts)
+- **Oracles:** **Flare FTSO (Flare Time Series Oracle)** for real-time asset prices
 - **Authentication:** Wallet-based auth (MetaMask integration)
 - **Verification:** Web scraping system for market data verification and source credibility
 
@@ -131,6 +130,31 @@ This token-based economy ensures:
 - ✅ **Smart Contracts:** PredictionDAO.sol with voting and governance functions
 - ✅ **MongoDB Integration:** Complete user profile and prediction storage
 
+## 🔥 **Flare Network Integration**
+
+InvestraXFlare now integrates **Flare Network's decentralized oracle infrastructure** to provide transparent, real-time asset price feeds for predictions:
+
+**What Flare Brings:**
+- ✅ **FTSO (Flare Time Series Oracle):** Decentralized price feeds for BTC, ETH, XRP, and other assets
+- ✅ **On-Chain Predictions:** All predictions stored on Flare Coston Testnet with immutable oracle prices
+- ✅ **Smart Contract Validation:** Predictions include reference prices at submission time, preventing tampering
+- ✅ **Decentralized Governance:** Removes dependency on centralized price providers
+
+**Technical Details:**
+- **Contract Address:** `0xd4f877b49584ba9777DBEE27e450bD524193B2f0`
+- **Network:** Flare Coston Testnet (chainId: 16)
+- **Smart Contract:** `PredictionDAOWithFlare.sol` with FTSO integration
+- **Backend Service:** `/backend/lib/flareContractService.js` provides read-only contract access
+- **API Endpoints:**
+  - `GET /api/dao/flare-oracle-price/:assetSymbol` - Real-time FTSO prices
+  - `GET /api/dao/predictions/all-with-flare` - Predictions with oracle data
+  - `GET /api/dao/contract-status` - Health check
+
+**User Experience:**
+- ⚡ **Oracle Price Widget:** Purple-themed UI component shows live Flare FTSO prices
+- 📊 **Prediction Submission:** When creating predictions, asset prices are captured from FTSO oracle
+- 🔗 **Explorer Verification:** Transaction hashes logged to Flare Coston Explorer for transparency
+
 ## 🛠️ **Project Setup Instructions**
 
 ### Frontend Setup
@@ -145,21 +169,26 @@ npm run dev
 ```bash
 cd ../backend
 npm install
-npm run dev
+npm start  # Runs on http://localhost:5000
 ```
 
-### Blockchain Setup
+### Blockchain Setup (Flare Integration)
 ```bash
 cd ../contracts
 npm install
 npx hardhat compile
-npx hardhat node  # Local blockchain
-npx hardhat run scripts/deploy.js --network localhost
+npx hardhat run scripts/deploy-flare.js --network coston  # Deploy to Flare Coston Testnet
 ```
 
 **Requirements:**
 - Node.js v16+
-- MetaMask browser extension
+- MetaMask browser extension with Flare Coston Testnet added
+- Testnet CFLR tokens (request from Flare faucet)
+
+**For Flare Coston Testnet:**
+- Add network to MetaMask: https://docs.flare.network/user/getting-started/testnet/
+- RPC URL: https://coston-api.flare.network/ext/bc/C/rpc
+- Chain ID: 16
 
 ## 🌐 **Impact & Vision**
 

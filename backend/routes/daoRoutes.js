@@ -7,10 +7,11 @@ const PredictionData = require('../models/PredictionData');
 const VerificationData = require('../models/VerificationData');
 const aiCurationService = require('../services/aiCurationService');
 
-// Import contract ABI and address
-const { predictionDAOAbi } = require('../contract/daoAbi.js');
+// === Flare Contract Integration ===
+const flareContractService = require('../lib/flareContractService');
 
-// Get contract address from environment variable
+// Legacy support (can be removed)
+const { predictionDAOAbi } = require('../contract/daoAbi.js');
 const DAO_CONTRACT_ADDRESS = process.env.DAO_CONTRACT_ADDRESS || "0xd9145CCE52D386f254917e481eB44e9943F39138";
 
 const DAO_CONTRACT_CONFIG = {
@@ -976,6 +977,145 @@ router.post('/verification/analyze', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'AI verification failed',
+      error: error.message
+    });
+  }
+});
+
+// ============ Flare Oracle Integration Endpoints ============
+
+/**
+ * GET /api/dao/flare-oracle-price/:assetSymbol
+ * 
+ * Fetch the latest oracle price for an asset from Flare FTSO
+ * Example: /api/dao/flare-oracle-price/BTC
+ */
+router.get('/flare-oracle-price/:assetSymbol', async (req, res) => {
+  try {
+    const { assetSymbol } = req.params;
+
+    if (!assetSymbol || assetSymbol.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Asset symbol is required'
+      });
+    }
+
+    console.log(`📡 Fetching Flare FTSO price for: ${assetSymbol}`);
+
+    // Fetch from Flare contract
+    const priceData = await flareContractService.getLatestAssetPrice(assetSymbol.toUpperCase());
+
+    if (!priceData) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          assetSymbol: assetSymbol.toUpperCase(),
+          available: false,
+          reason: 'FTSO oracle not configured for this asset (demo mode)',
+          note: 'This is expected - FTSO contracts need to be configured on the Flare network'
+        }
+      });
+    }
+
+    // Format the response
+    const formattedPrice = flareContractService.formatPrice(priceData.price, priceData.decimals);
+
+    res.json({
+      success: true,
+      data: {
+        assetSymbol: assetSymbol.toUpperCase(),
+        price: formattedPrice,
+        priceRaw: priceData.price,
+        decimals: priceData.decimals,
+        timestamp: priceData.timestamp,
+        source: 'Flare FTSO (Coston Testnet)',
+        available: true
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching Flare oracle price:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch oracle price'
+    });
+  }
+});
+
+/**
+ * GET /api/dao/predictions/all-with-flare
+ * 
+ * Fetch all predictions with their Flare FTSO oracle data
+ */
+router.get('/predictions/all-with-flare', async (req, res) => {
+  try {
+    console.log('📡 Fetching all predictions with Flare data from contract...');
+
+    const predictions = await flareContractService.getAllPredictions();
+
+    res.json({
+      success: true,
+      count: predictions.length,
+      data: predictions
+    });
+
+  } catch (error) {
+    console.error('Error fetching predictions with Flare data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch predictions'
+    });
+  }
+});
+
+/**
+ * GET /api/dao/predictions/active-with-flare
+ * 
+ * Fetch active predictions with their Flare FTSO oracle data
+ */
+router.get('/predictions/active-with-flare', async (req, res) => {
+  try {
+    console.log('📡 Fetching active predictions with Flare data from contract...');
+
+    const predictions = await flareContractService.getActivePredictions();
+
+    res.json({
+      success: true,
+      count: predictions.length,
+      data: predictions
+    });
+
+  } catch (error) {
+    console.error('Error fetching active predictions with Flare data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch active predictions'
+    });
+  }
+});
+
+/**
+ * GET /api/dao/contract-status
+ * 
+ * Health check - verify Flare contract is accessible
+ */
+router.get('/contract-status', async (req, res) => {
+  try {
+    const isAvailable = await flareContractService.isContractAvailable();
+
+    res.json({
+      success: true,
+      contractAvailable: isAvailable,
+      network: 'Flare Coston Testnet',
+      chainId: 16,
+      contractAddress: '0xd4f877b49584ba9777DBEE27e450bD524193B2f0'
+    });
+
+  } catch (error) {
+    console.error('Error checking contract status:', error.message);
+    res.status(500).json({
+      success: false,
       error: error.message
     });
   }

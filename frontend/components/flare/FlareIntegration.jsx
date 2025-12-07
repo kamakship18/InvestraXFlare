@@ -89,34 +89,73 @@ export default function FlareIntegration({
 
     setPriceLoading(true);
     try {
-      // In a real implementation, this would call the smart contract
-      // For demo, we'll simulate or call a backend endpoint
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const contractAddress = FLARE_CONFIG.predictionContractAddress;
+      console.log(`🔍 Fetching FTSO price for ${assetSymbol} from Flare contract...`);
       
-      if (!contractAddress) {
-        // Fallback: Use backend API or mock data for demo
-        console.log('Contract address not set, using mock FTSO price');
-        // Mock price for demo
-        const mockPrice = Math.random() * 50000 + 30000; // Random price between 30k-80k
-        setFtsoPrice({
-          price: mockPrice,
-          decimals: 8,
-          timestamp: Date.now()
-        });
-        if (onPriceFetched) {
-          onPriceFetched(mockPrice, 8, Date.now());
-        }
-        return;
+      // Try to fetch from backend API (which calls the Flare contract)
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5004';
+      const response = await fetch(
+        `${backendUrl}/api/dao/flare-oracle-price/${assetSymbol}`,
+        { method: 'GET' }
+      );
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
       }
 
-      // TODO: Call contract's getLatestAssetPrice function
-      // For now, we'll use a backend endpoint or mock
-      toast.info('FTSO price fetching - using demo data');
-      
+      const data = await response.json();
+
+      if (data.success && data.data.available) {
+        // Successfully got real price from Flare FTSO
+        const priceData = {
+          price: parseFloat(data.data.price),
+          priceRaw: data.data.priceRaw,
+          decimals: data.data.decimals,
+          timestamp: parseInt(data.data.timestamp),
+          source: data.data.source
+        };
+        
+        setFtsoPrice(priceData);
+        toast.success(`✅ Got ${assetSymbol} price from Flare FTSO: $${priceData.price.toFixed(2)}`);
+        
+        if (onPriceFetched) {
+          onPriceFetched(priceData.price, priceData.decimals, priceData.timestamp);
+        }
+      } else {
+        // FTSO not available - use demo data
+        console.log('ℹ️  FTSO not configured for this asset - using demo data');
+        const demoPrice = Math.random() * 50000 + 30000; // Random between 30k-80k
+        const demoData = {
+          price: demoPrice,
+          decimals: 8,
+          timestamp: Math.floor(Date.now() / 1000),
+          source: 'Demo Data (FTSO not configured)',
+          isDemoData: true
+        };
+        
+        setFtsoPrice(demoData);
+        toast.info('⚠️  Using demo price data (FTSO not configured)');
+        
+        if (onPriceFetched) {
+          onPriceFetched(demoData.price, demoData.decimals, demoData.timestamp);
+        }
+      }
     } catch (error) {
-      console.error('Error fetching FTSO price:', error);
-      toast.error('Failed to fetch FTSO price');
+      console.error('❌ Error fetching FTSO price:', error);
+      
+      // Fallback to demo data
+      const fallbackPrice = Math.random() * 50000 + 30000;
+      setFtsoPrice({
+        price: fallbackPrice,
+        decimals: 8,
+        timestamp: Math.floor(Date.now() / 1000),
+        source: 'Fallback Demo Data',
+        isDemoData: true
+      });
+      
+      toast.warning('Using fallback demo price data');
+      if (onPriceFetched) {
+        onPriceFetched(fallbackPrice, 8, Math.floor(Date.now() / 1000));
+      }
     } finally {
       setPriceLoading(false);
     }
@@ -247,7 +286,7 @@ export default function FlareIntegration({
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-purple-400" />
-            <h3 className="font-medium text-purple-300">Flare FTSO Price</h3>
+            <h3 className="font-bold text-lg text-purple-300">⚡ Flare FTSO Oracle</h3>
           </div>
           <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30">
             Powered by Flare
@@ -267,11 +306,16 @@ export default function FlareIntegration({
                   ${ftsoPrice.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
                 <p className="text-xs text-purple-300">
-                  {assetSymbol}/USD • Source: Flare FTSO (Coston2)
+                  {assetSymbol}/USD • {ftsoPrice.isDemoData ? '📊 Demo Data' : 'Real FTSO Data'}
                 </p>
                 <p className="text-xs text-purple-400">
-                  Timestamp: {new Date(ftsoPrice.timestamp).toLocaleString()}
+                  Source: {ftsoPrice.source}
                 </p>
+                {ftsoPrice.timestamp && (
+                  <p className="text-xs text-purple-400">
+                    Time: {new Date(parseInt(ftsoPrice.timestamp) * 1000).toLocaleString()}
+                  </p>
+                )}
               </div>
             ) : (
               <Button 
