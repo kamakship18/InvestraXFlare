@@ -1121,4 +1121,136 @@ router.get('/contract-status', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/dao/predictions/create-with-flare
+ * 
+ * Create a prediction with Flare contract integration
+ * Frontend will call the Flare contract directly, this endpoint stores metadata in MongoDB
+ */
+router.post('/predictions/create-with-flare', async (req, res) => {
+  try {
+    const { 
+      title, 
+      description, 
+      category, 
+      assetSymbol,
+      votingPeriod, 
+      creator, 
+      transactionHash,
+      flarePredictionId,
+      originalPredictionData 
+    } = req.body;
+    
+    if (!title || !description || !category || !votingPeriod || !creator) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields'
+      });
+    }
+    
+    const endTime = Math.floor(Date.now() / 1000) + (parseInt(votingPeriod) * 24 * 60 * 60);
+    
+    const predictionData = {
+      creator,
+      title,
+      description,
+      category,
+      endTime,
+      assetSymbol: assetSymbol || null,
+      flareTransactionHash: transactionHash || null,
+      flarePredictionId: flarePredictionId || null,
+      isFlarePrediction: true
+    };
+    
+    // Create in MongoDB
+    const prediction = await daoService.createPredictionInDB(predictionData);
+    
+    // Also save comprehensive prediction data if provided
+    if (originalPredictionData) {
+      try {
+        const comprehensiveData = new PredictionData({
+          predictionText: title,
+          reasoning: description,
+          validationScore: originalPredictionData.validationScore || 0,
+          sources: originalPredictionData.sources || [],
+          perplexityCheck: originalPredictionData.perplexityCheck || null,
+          createdBy: creator,
+          formData: originalPredictionData.formData || {},
+          aiValidation: originalPredictionData.aiValidation || {},
+          daoData: {
+            daoPredictionId: prediction.id.toString(),
+            votingPeriod: parseInt(votingPeriod),
+            totalVotes: 0,
+            yesVotes: 0,
+            noVotes: 0,
+            isApproved: false,
+            isFlarePrediction: true,
+            flareTransactionHash: transactionHash,
+            flarePredictionId: flarePredictionId
+          },
+          status: 'submitted-to-dao'
+        });
+        
+        await comprehensiveData.save();
+        console.log('✅ Saved comprehensive Flare prediction data for DAO prediction:', prediction.id);
+      } catch (comprehensiveError) {
+        console.error('Error saving comprehensive prediction data:', comprehensiveError);
+        // Don't fail the main prediction creation
+      }
+    }
+    
+    // Create or update influencer profile
+    try {
+      let influencerProfile = await InfluencerProfile.findOne({ walletAddress: creator });
+      
+      if (!influencerProfile) {
+        influencerProfile = new InfluencerProfile({
+          name: creator.substring(0, 6) + '...' + creator.substring(creator.length - 4),
+          walletAddress: creator,
+          bio: 'Influencer on Investra platform',
+          expertise: [category],
+          verificationStatus: 'unverified',
+          reputation: 0
+        });
+        await influencerProfile.save();
+        console.log('Created new influencer profile for:', creator);
+      } else {
+        await InfluencerProfile.findOneAndUpdate(
+          { walletAddress: creator },
+          { 
+            $inc: { 
+              'predictionStats.totalCreated': 1,
+              totalPredictions: 1
+            },
+            $set: {
+              'predictionStats.lastPredictionDate': new Date(),
+              updatedAt: new Date()
+            }
+          }
+        );
+        console.log('Updated influencer profile stats for:', creator);
+      }
+    } catch (profileError) {
+      console.error('Error handling influencer profile:', profileError);
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        id: prediction.id,
+        flarePredictionId: flarePredictionId,
+        transactionHash: transactionHash,
+        message: 'Flare prediction created and stored in database'
+      }
+    });
+  } catch (error) {
+    console.error('Error creating Flare prediction:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create Flare prediction',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;

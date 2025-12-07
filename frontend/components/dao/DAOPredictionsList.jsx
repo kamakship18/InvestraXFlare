@@ -3,13 +3,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { RefreshCw, TrendingUp, Clock, CheckCircle } from 'lucide-react';
+import { RefreshCw, TrendingUp, Clock, CheckCircle, Zap } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import DAOVotingCard from './DAOVotingCard';
 
 const DAOPredictionsList = ({ userAddress }) => {
   const [activePredictions, setActivePredictions] = useState([]);
   const [approvedPredictions, setApprovedPredictions] = useState([]);
+  const [flarePredictions, setFlarePredictions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -20,9 +21,10 @@ const DAOPredictionsList = ({ userAddress }) => {
   const fetchPredictions = async () => {
     setLoading(true);
     try {
-      const [activeResponse, approvedResponse] = await Promise.all([
+      const [activeResponse, approvedResponse, flareResponse] = await Promise.all([
         fetch('/api/dao/predictions/active'),
-        fetch('/api/dao/predictions/approved')
+        fetch('/api/dao/predictions/approved'),
+        fetch('/api/dao/predictions/all-with-flare').catch(() => null)
       ]);
 
       const activeData = await activeResponse.json();
@@ -34,6 +36,14 @@ const DAOPredictionsList = ({ userAddress }) => {
 
       if (approvedData.success) {
         setApprovedPredictions(approvedData.data);
+      }
+
+      // Fetch Flare predictions
+      if (flareResponse && flareResponse.ok) {
+        const flareData = await flareResponse.json();
+        if (flareData.success) {
+          setFlarePredictions(flareData.data || []);
+        }
       }
     } catch (error) {
       console.error('Error fetching predictions:', error);
@@ -86,14 +96,18 @@ const DAOPredictionsList = ({ userAddress }) => {
       </div>
 
       <Tabs defaultValue="active" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="active" className="flex items-center gap-2">
             <Clock className="w-4 h-4" />
-            Active Predictions ({activePredictions.length})
+            Active ({activePredictions.length})
           </TabsTrigger>
           <TabsTrigger value="approved" className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4" />
-            Approved Predictions ({approvedPredictions.length})
+            Approved ({approvedPredictions.length})
+          </TabsTrigger>
+          <TabsTrigger value="flare" className="flex items-center gap-2">
+            <Zap className="w-4 h-4" />
+            Flare ({flarePredictions.length})
           </TabsTrigger>
         </TabsList>
 
@@ -181,6 +195,83 @@ const DAOPredictionsList = ({ userAddress }) => {
                       
                       <div className="text-xs text-green-600 pt-2 border-t border-green-200">
                         Approved by community on {new Date(parseInt(prediction.createdAt) * 1000).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="flare" className="mt-6">
+          <div className="space-y-6">
+            {flarePredictions.length === 0 ? (
+              <Card>
+                <CardContent className="text-center py-12">
+                  <Zap className="w-12 h-12 mx-auto mb-4 text-purple-400" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    No Flare Predictions
+                  </h3>
+                  <p className="text-gray-600">
+                    No predictions have been created on the Flare contract yet.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              flarePredictions.map((prediction) => (
+                <Card key={prediction.id} className="border-purple-200 bg-purple-50/50 dark:bg-purple-900/20">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-xl font-bold mb-2 flex items-center gap-2">
+                          {prediction.title}
+                          <Badge className="bg-purple-600 text-white">
+                            <Zap className="w-3 h-3 mr-1" />
+                            Flare
+                          </Badge>
+                        </CardTitle>
+                        <CardDescription className="text-gray-700 dark:text-gray-300">
+                          {prediction.description}
+                        </CardDescription>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400 mt-2">
+                      <div className="flex items-center gap-1">
+                        <span>Category: {prediction.category}</span>
+                      </div>
+                      {prediction.assetSymbol && (
+                        <div className="flex items-center gap-1">
+                          <span>Asset: {prediction.assetSymbol}</span>
+                        </div>
+                      )}
+                      {prediction.priceSourceIsFTSO && prediction.refPriceAtSubmission && (
+                        <div className="flex items-center gap-1 text-purple-600">
+                          <Zap className="w-4 h-4" />
+                          <span>FTSO Price: ${(parseInt(prediction.refPriceAtSubmission) / Math.pow(10, prediction.priceDecimals || 8)).toFixed(2)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </CardHeader>
+
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700 dark:text-gray-300">Voting Results:</span>
+                        <span className="font-semibold">
+                          {prediction.yesVotes} Yes • {prediction.noVotes} No • {prediction.totalVotes} Total
+                        </span>
+                      </div>
+                      
+                      {prediction.stakedAmount && parseInt(prediction.stakedAmount) > 0 && (
+                        <div className="text-sm text-purple-600">
+                          Staked: {(parseInt(prediction.stakedAmount) / 1e18).toFixed(4)} FXRP
+                        </div>
+                      )}
+                      
+                      <div className="text-xs text-gray-500 pt-2 border-t border-gray-200 dark:border-gray-700">
+                        Created on Flare Coston Testnet • {new Date(parseInt(prediction.createdAt) * 1000).toLocaleDateString()}
                       </div>
                     </div>
                   </CardContent>

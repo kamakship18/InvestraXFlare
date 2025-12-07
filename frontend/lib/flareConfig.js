@@ -11,7 +11,7 @@ export const FLARE_CONFIG = {
   blockExplorer: 'https://coston-explorer.flare.network',
   
   // Contract addresses (update after deployment)
-  predictionContractAddress: process.env.NEXT_PUBLIC_FLARE_PREDICTION_CONTRACT || '',
+  predictionContractAddress: process.env.NEXT_PUBLIC_FLARE_PREDICTION_CONTRACT || '0xd4f877b49584ba9777DBEE27e450bD524193B2f0',
   fxrpTokenAddress: process.env.NEXT_PUBLIC_FLARE_FXRP_TOKEN || '0x0000000000000000000000000000000000000000', // TODO: Update with real FXRP address
   
   // FTSO Feed IDs (bytes21 format)

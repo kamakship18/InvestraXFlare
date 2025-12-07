@@ -57,9 +57,12 @@ export default function FlareIntegration({
     }
   }, [assetSymbol, isConnected]);
 
-  // Check FXRP balance and allowance
+  // Check FXRP balance and allowance (only if FXRP is configured)
   useEffect(() => {
-    if (isConnected && FLARE_CONFIG.fxrpTokenAddress) {
+    if (isConnected && 
+        FLARE_CONFIG.fxrpTokenAddress && 
+        FLARE_CONFIG.fxrpTokenAddress !== '0x0000000000000000000000000000000000000000' &&
+        FLARE_CONFIG.fxrpTokenAddress !== '') {
       checkFXRPBalance();
       checkFXRPAllowance();
     }
@@ -91,52 +94,82 @@ export default function FlareIntegration({
     try {
       console.log(`🔍 Fetching FTSO price for ${assetSymbol} from Flare contract...`);
       
-      // Try to fetch from backend API (which calls the Flare contract)
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5004';
+      // Use Next.js API route to proxy the request (avoids CORS issues)
       const response = await fetch(
-        `${backendUrl}/api/dao/flare-oracle-price/${assetSymbol}`,
+        `/api/dao/flare-oracle-price/${assetSymbol}`,
         { method: 'GET' }
       );
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
+        // Even if response is not ok, try to parse it for error details
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { message: response.statusText };
+        }
+        throw new Error(errorData.message || `API error: ${response.statusText}`);
       }
 
       const data = await response.json();
 
-      if (data.success && data.data.available) {
-        // Successfully got real price from Flare FTSO
-        const priceData = {
-          price: parseFloat(data.data.price),
-          priceRaw: data.data.priceRaw,
-          decimals: data.data.decimals,
-          timestamp: parseInt(data.data.timestamp),
-          source: data.data.source
-        };
+      // Handle both real data and demo data
+      if (data.success && data.data) {
+        // Check if it's demo data or real data
+        const isDemo = data.data.isDemoData || !data.data.available;
         
-        setFtsoPrice(priceData);
-        toast.success(`✅ Got ${assetSymbol} price from Flare FTSO: $${priceData.price.toFixed(2)}`);
-        
-        if (onPriceFetched) {
-          onPriceFetched(priceData.price, priceData.decimals, priceData.timestamp);
+        if (isDemo || !data.data.available) {
+          // FTSO not available - use demo data from API response
+          console.log('ℹ️  Using demo data from API');
+          const priceData = {
+            price: parseFloat(data.data.price || (Math.random() * 50000 + 30000)),
+            priceRaw: data.data.priceRaw || '0',
+            decimals: data.data.decimals || 8,
+            timestamp: parseInt(data.data.timestamp || Math.floor(Date.now() / 1000)),
+            source: data.data.source || 'Demo Data',
+            isDemoData: true
+          };
+          
+          setFtsoPrice(priceData);
+          toast(`📊 Using demo price data: $${priceData.price.toFixed(2)}`, { icon: 'ℹ️' });
+          
+          if (onPriceFetched) {
+            onPriceFetched(priceData.price, priceData.decimals, priceData.timestamp);
+          }
+        } else {
+          // Successfully got real price from Flare FTSO
+          const priceData = {
+            price: parseFloat(data.data.price),
+            priceRaw: data.data.priceRaw,
+            decimals: data.data.decimals,
+            timestamp: parseInt(data.data.timestamp),
+            source: data.data.source
+          };
+          
+          setFtsoPrice(priceData);
+          toast.success(`✅ Got ${assetSymbol} price from Flare FTSO: $${priceData.price.toFixed(2)}`);
+          
+          if (onPriceFetched) {
+            onPriceFetched(priceData.price, priceData.decimals, priceData.timestamp);
+          }
         }
       } else {
-        // FTSO not available - use demo data
-        console.log('ℹ️  FTSO not configured for this asset - using demo data');
-        const demoPrice = Math.random() * 50000 + 30000; // Random between 30k-80k
-        const demoData = {
-          price: demoPrice,
+        // API returned success:false or unexpected format - use fallback
+        console.log('ℹ️  API returned unexpected format - using fallback demo data');
+        const fallbackPrice = Math.random() * 50000 + 30000;
+        const fallbackData = {
+          price: fallbackPrice,
           decimals: 8,
           timestamp: Math.floor(Date.now() / 1000),
-          source: 'Demo Data (FTSO not configured)',
+          source: 'Fallback Demo Data',
           isDemoData: true
         };
         
-        setFtsoPrice(demoData);
-        toast.info('⚠️  Using demo price data (FTSO not configured)');
+        setFtsoPrice(fallbackData);
+        toast(`📊 Using fallback demo price data`, { icon: 'ℹ️' });
         
         if (onPriceFetched) {
-          onPriceFetched(demoData.price, demoData.decimals, demoData.timestamp);
+          onPriceFetched(fallbackData.price, fallbackData.decimals, fallbackData.timestamp);
         }
       }
     } catch (error) {
@@ -152,7 +185,7 @@ export default function FlareIntegration({
         isDemoData: true
       });
       
-      toast.warning('Using fallback demo price data');
+      toast('Using fallback demo price data', { icon: '⚠️' });
       if (onPriceFetched) {
         onPriceFetched(fallbackPrice, 8, Math.floor(Date.now() / 1000));
       }
@@ -162,12 +195,27 @@ export default function FlareIntegration({
   };
 
   const checkFXRPBalance = async () => {
-    if (!window.ethereum || !FLARE_CONFIG.fxrpTokenAddress) return;
+    if (!window.ethereum) return;
+
+    // Check if FXRP token address is configured
+    if (!FLARE_CONFIG.fxrpTokenAddress || 
+        FLARE_CONFIG.fxrpTokenAddress === '0x0000000000000000000000000000000000000000' ||
+        FLARE_CONFIG.fxrpTokenAddress === '') {
+      // FXRP not configured - this is OK, just don't show balance
+      return;
+    }
 
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const userAddress = await signer.getAddress();
+      
+      // Check if contract exists at this address
+      const code = await provider.getCode(FLARE_CONFIG.fxrpTokenAddress);
+      if (code === '0x' || code === '0x0') {
+        console.warn('No contract found at FXRP token address');
+        return;
+      }
       
       const tokenContract = new ethers.Contract(
         FLARE_CONFIG.fxrpTokenAddress,
@@ -182,18 +230,35 @@ export default function FlareIntegration({
       setFxrpBalance(formattedBalance);
     } catch (error) {
       console.error('Error checking FXRP balance:', error);
+      // Don't show error to user - FXRP is optional
       // For demo, set a mock balance
       setFxrpBalance('100.0');
     }
   };
 
   const checkFXRPAllowance = async () => {
-    if (!window.ethereum || !FLARE_CONFIG.fxrpTokenAddress || !FLARE_CONFIG.predictionContractAddress) return;
+    if (!window.ethereum) return;
+
+    // Check if FXRP token address is configured
+    if (!FLARE_CONFIG.fxrpTokenAddress || 
+        FLARE_CONFIG.fxrpTokenAddress === '0x0000000000000000000000000000000000000000' ||
+        FLARE_CONFIG.fxrpTokenAddress === '' ||
+        !FLARE_CONFIG.predictionContractAddress) {
+      // FXRP not configured - this is OK, just don't show allowance
+      return;
+    }
 
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const userAddress = await signer.getAddress();
+      
+      // Check if contract exists at this address
+      const code = await provider.getCode(FLARE_CONFIG.fxrpTokenAddress);
+      if (code === '0x' || code === '0x0') {
+        console.warn('No contract found at FXRP token address');
+        return;
+      }
       
       const tokenContract = new ethers.Contract(
         FLARE_CONFIG.fxrpTokenAddress,
@@ -208,13 +273,23 @@ export default function FlareIntegration({
       setFxrpAllowance(formattedAllowance);
     } catch (error) {
       console.error('Error checking FXRP allowance:', error);
+      // Don't show error to user - FXRP is optional
       setFxrpAllowance('0');
     }
   };
 
   const handleApproveFXRP = async () => {
-    if (!window.ethereum || !FLARE_CONFIG.fxrpTokenAddress || !FLARE_CONFIG.predictionContractAddress) {
-      toast.error('Network or contract not configured');
+    if (!window.ethereum) {
+      toast.error('MetaMask not detected');
+      return;
+    }
+
+    // Check if FXRP token address is configured
+    if (!FLARE_CONFIG.fxrpTokenAddress || 
+        FLARE_CONFIG.fxrpTokenAddress === '0x0000000000000000000000000000000000000000' ||
+        FLARE_CONFIG.fxrpTokenAddress === '' ||
+        !FLARE_CONFIG.predictionContractAddress) {
+      toast.error('FXRP token address not configured. Please configure it in the Flare config.');
       return;
     }
 
@@ -222,6 +297,12 @@ export default function FlareIntegration({
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
+      
+      // Check if contract exists at this address
+      const code = await provider.getCode(FLARE_CONFIG.fxrpTokenAddress);
+      if (code === '0x' || code === '0x0') {
+        throw new Error('No contract found at FXRP token address. Token may not be deployed.');
+      }
       
       const tokenContract = new ethers.Contract(
         FLARE_CONFIG.fxrpTokenAddress,

@@ -12,6 +12,7 @@ import { contractAddress } from "../../contract/contractAddress";
 // === Flare Integration ===
 import FLARE_CONFIG from '@/lib/flareConfig';
 import flareDaoAbi from '@/lib/abi/flareDaoAbi.json';
+import FlareIntegration from '@/components/flare/FlareIntegration';
 
 import Navbar from '@/components/layout/Navbar';
 import { 
@@ -148,6 +149,10 @@ const CreatePredictionPage = () => {
   const [validationError, setValidationError] = useState("");
   const [isValidating, setIsValidating] = useState(false);
   const [reasoningValidation, setReasoningValidation] = useState(null);
+  
+  // Flare integration states
+  const [flarePriceData, setFlarePriceData] = useState(null);
+  const [flareStakeAmount, setFlareStakeAmount] = useState('1');
   
   const handleChange = (name, value) => {
     // Special handling for category changes
@@ -489,14 +494,113 @@ const CreatePredictionPage = () => {
       console.log('   Transaction hash:', tx.hash);
       console.log('   View on explorer: https://coston-explorer.flare.network/tx/' + tx.hash);
 
-      // Also submit metadata to backend for indexing
-      await submitToDAO();
+      // Extract prediction ID from events
+      let flarePredictionId = null;
+      const predictionCreatedEvent = receipt.logs.find(
+        log => {
+          try {
+            const parsed = contract.interface.parseLog(log);
+            return parsed && parsed.name === 'PredictionCreated';
+          } catch {
+            return false;
+          }
+        }
+      );
+
+      if (predictionCreatedEvent) {
+        const parsed = contract.interface.parseLog(predictionCreatedEvent);
+        flarePredictionId = parsed.args.predictionId.toString();
+        console.log('   Flare Prediction ID:', flarePredictionId);
+      }
+
+      // Submit metadata to backend with Flare integration
+      await submitToFlareBackend(tx.hash, flarePredictionId);
 
       return tx.hash;
 
     } catch (error) {
       console.error('❌ Error submitting to Flare contract:', error);
       toast.error('Failed to submit to Flare: ' + error.message);
+      throw error;
+    }
+  };
+
+  const submitToFlareBackend = async (transactionHash, flarePredictionId) => {
+    try {
+      // Create prediction title and description
+      const predictionTitle = `${formData.asset} ${formData.predictionType === 'priceTarget' ? 'will reach ' + formData.targetPrice : 
+                            formData.predictionType === 'percentage' ? 'will change by ' + formData.targetPrice : 
+                            'will ' + formData.targetPrice} by ${formData.deadline}`;
+      
+      const predictionDescription = formData.reasoning;
+      
+      // Extract asset symbol from asset field
+      const assetSymbol = formData.asset.split(' - ')[0] || formData.asset;
+      
+      // Prepare original prediction data for comprehensive storage
+      const sources = uploadedFiles.map(file => ({
+        name: file.name,
+        type: file.type,
+        validation: fileValidations[file.id] || { trustLevel: 'unverified', score: 0 }
+      }));
+
+      const originalPredictionData = {
+        validationScore: validationPercentage,
+        sources: sources,
+        perplexityCheck: reasoningValidation,
+        formData: {
+          category: formData.category,
+          asset: formData.asset,
+          predictionType: formData.predictionType,
+          targetPrice: formData.targetPrice,
+          deadline: formData.deadline,
+          confidence: formData.confidence,
+          confirmed: formData.confirmed
+        },
+        aiValidation: {
+          reasoningScore: reasoningValidation?.score || 0,
+          sourceCredibility: validationPercentage,
+          marketRelevance: 85, // Default value
+          overallScore: validationPercentage,
+          validationPassed: validationMeetsThreshold(),
+          validationDate: new Date()
+        }
+      };
+
+      // Submit to Flare backend endpoint via Next.js API route
+      const response = await fetch('/api/dao/predictions/create-with-flare', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: predictionTitle,
+          description: predictionDescription,
+          category: formData.category,
+          assetSymbol: assetSymbol,
+          votingPeriod: 7, // 7 days voting period
+          creator: userAddress || 'Anonymous',
+          transactionHash: transactionHash,
+          flarePredictionId: flarePredictionId,
+          originalPredictionData: originalPredictionData
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to submit to backend');
+      }
+
+      toast.success("✅ Prediction created on Flare and saved to database!");
+      
+      // Redirect to community hub after successful submission
+      setTimeout(() => {
+        router.push('/influencer/community-hub');
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Error submitting to Flare backend:', error);
       throw error;
     }
   };
@@ -1094,6 +1198,22 @@ const CreatePredictionPage = () => {
                               </Select>
                               {errors.asset && <p className="text-red-500 text-sm mt-1">{errors.asset}</p>}
                             </div>
+                            
+                            {/* Flare Integration - FTSO Price Display */}
+                            {formData.asset && (
+                              <div className="mt-4">
+                                <FlareIntegration
+                                  assetSymbol={formData.asset.split(' - ')[0] || formData.asset}
+                                  onPriceFetched={(price, decimals, timestamp) => {
+                                    setFlarePriceData({ price, decimals, timestamp });
+                                  }}
+                                  onStakeAmountChange={(amount) => {
+                                    setFlareStakeAmount(amount);
+                                  }}
+                                  stakeAmount={flareStakeAmount}
+                                />
+                              </div>
+                            )}
                             
                             {/* Prediction Type */}
                             <div>

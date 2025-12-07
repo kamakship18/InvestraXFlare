@@ -11,15 +11,22 @@ import { toast } from 'react-hot-toast';
 import { ethers } from 'ethers';
 import { predictionDAOAbi } from '../../contract/daoAbi';
 import { DAO_CONTRACT_CONFIG } from '../../contract/daoContractAddress';
+import FLARE_CONFIG, { switchToFlareNetwork, isConnectedToFlare } from '../../lib/flareConfig';
+import flareDaoAbi from '../../lib/abi/flareDaoAbi.json';
+import FlareIntegration from '../flare/FlareIntegration';
 
 const CreatePredictionForm = ({ userAddress, onPredictionCreated }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     category: '',
-    votingPeriod: '3' // Default to 3 days
+    votingPeriod: '3', // Default to 3 days
+    assetSymbol: '', // For Flare contract
+    useFlare: true // Use Flare contract by default
   });
   const [isCreating, setIsCreating] = useState(false);
+  const [flarePriceData, setFlarePriceData] = useState(null);
+  const [flareStakeAmount, setFlareStakeAmount] = useState('1');
 
   const categories = [
     'Technology',
@@ -88,8 +95,85 @@ const CreatePredictionForm = ({ userAddress, onPredictionCreated }) => {
 
     setIsCreating(true);
     try {
-      // Use the new backend API endpoint
-      const response = await fetch('/api/dao/predictions/create', {
+      if (formData.useFlare && formData.assetSymbol) {
+        // Use Flare contract
+        await createFlarePrediction();
+      } else {
+        // Use regular DAO contract
+        await createRegularPrediction();
+      }
+    } catch (error) {
+      console.error('Error creating prediction:', error);
+      toast.error('Failed to create prediction. Please try again.');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const createFlarePrediction = async () => {
+    try {
+      if (!window.ethereum) {
+        throw new Error('MetaMask not detected');
+      }
+
+      // Check if connected to Flare network
+      const isConnected = await isConnectedToFlare();
+      if (!isConnected) {
+        await switchToFlareNetwork();
+      }
+
+      // Create provider and signer
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      // Create contract instance
+      const contractAddress = FLARE_CONFIG.predictionContractAddress || '0xd4f877b49584ba9777DBEE27e450bD524193B2f0';
+      const contract = new ethers.Contract(
+        contractAddress,
+        flareDaoAbi,
+        signer
+      );
+
+      // Prepare prediction data
+      const votingPeriodSeconds = parseInt(formData.votingPeriod) * 24 * 60 * 60;
+      const stakedAmount = ethers.parseUnits(flareStakeAmount || '1', 18);
+
+      toast.loading('Submitting to Flare contract...', { id: 'flare-tx' });
+
+      // Call createPrediction on Flare contract
+      const tx = await contract.createPrediction(
+        formData.title,
+        formData.description,
+        formData.category,
+        formData.assetSymbol.toUpperCase(),
+        votingPeriodSeconds,
+        stakedAmount
+      );
+
+      const receipt = await tx.wait();
+
+      // Extract prediction ID from events
+      let flarePredictionId = null;
+      const predictionCreatedEvent = receipt.logs.find(
+        log => {
+          try {
+            const parsed = contract.interface.parseLog(log);
+            return parsed && parsed.name === 'PredictionCreated';
+          } catch {
+            return false;
+          }
+        }
+      );
+
+      if (predictionCreatedEvent) {
+        const parsed = contract.interface.parseLog(predictionCreatedEvent);
+        flarePredictionId = parsed.args.predictionId.toString();
+      }
+
+      toast.success('✅ Prediction created on Flare!', { id: 'flare-tx' });
+
+      // Store in backend via Next.js API route
+      const response = await fetch('/api/dao/predictions/create-with-flare', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -98,39 +182,77 @@ const CreatePredictionForm = ({ userAddress, onPredictionCreated }) => {
           title: formData.title,
           description: formData.description,
           category: formData.category,
+          assetSymbol: formData.assetSymbol,
           votingPeriod: formData.votingPeriod,
-          creator: userAddress
+          creator: userAddress,
+          transactionHash: tx.hash,
+          flarePredictionId: flarePredictionId
         }),
       });
 
       const data = await response.json();
       
       if (data.success) {
-        toast.success(data.data.message);
+        toast.success('Prediction saved to database!');
         
         // Reset form
         setFormData({
           title: '',
           description: '',
           category: '',
-          votingPeriod: '3'
+          votingPeriod: '3',
+          assetSymbol: '',
+          useFlare: true
         });
         
         if (onPredictionCreated) {
           onPredictionCreated(data.data.id);
         }
       } else {
-        throw new Error(data.message || 'Failed to create prediction');
+        throw new Error(data.message || 'Failed to save prediction');
       }
     } catch (error) {
-      console.error('Error creating prediction:', error);
-      if (error.message.includes('Not a DAO member')) {
-        toast.error('You are not a member of the DAO. Please contact the admin to join.');
-      } else {
-        toast.error('Failed to create prediction. Please try again.');
+      console.error('Error creating Flare prediction:', error);
+      toast.error('Failed to create Flare prediction: ' + error.message, { id: 'flare-tx' });
+      throw error;
+    }
+  };
+
+  const createRegularPrediction = async () => {
+    const response = await fetch('/api/dao/predictions/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: formData.title,
+        description: formData.description,
+        category: formData.category,
+        votingPeriod: formData.votingPeriod,
+        creator: userAddress
+      }),
+    });
+
+    const data = await response.json();
+    
+    if (data.success) {
+      toast.success(data.data.message);
+      
+      // Reset form
+      setFormData({
+        title: '',
+        description: '',
+        category: '',
+        votingPeriod: '3',
+        assetSymbol: '',
+        useFlare: true
+      });
+      
+      if (onPredictionCreated) {
+        onPredictionCreated(data.data.id);
       }
-    } finally {
-      setIsCreating(false);
+    } else {
+      throw new Error(data.message || 'Failed to create prediction');
     }
   };
 
@@ -217,6 +339,40 @@ const CreatePredictionForm = ({ userAddress, onPredictionCreated }) => {
               </SelectContent>
             </Select>
           </div>
+
+          {/* Flare Integration - Asset Symbol */}
+          {formData.useFlare && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="assetSymbol">Asset Symbol (for Flare FTSO) *</Label>
+                <Input
+                  id="assetSymbol"
+                  value={formData.assetSymbol}
+                  onChange={(e) => handleInputChange('assetSymbol', e.target.value.toUpperCase())}
+                  placeholder="e.g., BTC, ETH, XRP"
+                  maxLength={10}
+                  required={formData.useFlare}
+                />
+                <div className="text-xs text-gray-500">
+                  Asset symbol for Flare FTSO oracle price feed
+                </div>
+              </div>
+
+              {/* Flare Integration Component */}
+              {formData.assetSymbol && (
+                <FlareIntegration
+                  assetSymbol={formData.assetSymbol}
+                  onPriceFetched={(price, decimals, timestamp) => {
+                    setFlarePriceData({ price, decimals, timestamp });
+                  }}
+                  onStakeAmountChange={(amount) => {
+                    setFlareStakeAmount(amount);
+                  }}
+                  stakeAmount={flareStakeAmount}
+                />
+              )}
+            </>
+          )}
 
           {/* Info Box */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
