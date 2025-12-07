@@ -3,15 +3,15 @@
  * Configuration for Flare Coston2 testnet integration
  */
 
-// Flare Coston2 Testnet Configuration
+// Flare Coston Testnet Configuration
 export const FLARE_CONFIG = {
-  networkName: 'Flare Coston2 Testnet',
-  chainId: 114,
-  rpcUrl: 'https://coston2-api.flare.network/ext/bc/C/rpc',
-  blockExplorer: 'https://coston2-explorer.flare.network',
+  networkName: 'Flare Coston Testnet',
+  chainId: 16,
+  rpcUrl: 'https://coston-api.flare.network/ext/bc/C/rpc',
+  blockExplorer: 'https://coston-explorer.flare.network',
   
   // Contract addresses (update after deployment)
-  predictionContractAddress: process.env.NEXT_PUBLIC_FLARE_PREDICTION_CONTRACT || '',
+  predictionContractAddress: process.env.NEXT_PUBLIC_FLARE_PREDICTION_CONTRACT || '0x5A6613fb3effF1405FeE5ab1d7C6D924b8d1bF4C',
   fxrpTokenAddress: process.env.NEXT_PUBLIC_FLARE_FXRP_TOKEN || '0x0000000000000000000000000000000000000000', // TODO: Update with real FXRP address
   
   // FTSO Feed IDs (bytes21 format)
@@ -32,8 +32,8 @@ export const FLARE_CONFIG = {
       symbol: 'C2FLR',
       decimals: 18
     },
-    rpcUrls: ['https://coston2-api.flare.network/ext/bc/C/rpc'],
-    blockExplorerUrls: ['https://coston2-explorer.flare.network']
+    rpcUrls: ['https://coston-api.flare.network/ext/bc/C/rpc'],
+    blockExplorerUrls: ['https://coston-explorer.flare.network']
   }
 };
 
