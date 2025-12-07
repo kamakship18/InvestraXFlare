@@ -1,8 +1,24 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+// ============ FTSO v2 Interface ============
+// Based on Flare's FTSO v2 interface for Coston2 testnet
+interface IFtsoV2 {
+    function getCurrentPrice() external view returns (
+        uint256 _price,
+        uint256 _timestamp,
+        uint256 _assetPriceUsdDecimals
+    );
+    function getPrice(uint256 _epochId) external view returns (
+        uint256 _price,
+        uint256 _timestamp,
+        uint256 _assetPriceUsdDecimals
+    );
+}
 
 /**
  * @title PredictionDAOWithFlare
@@ -11,29 +27,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
  *      and FXRP (FAsset) as staking token for expert predictions
  */
 contract PredictionDAOWithFlare is Ownable, ReentrancyGuard {
-    
-    // ============ ERC20 Interface for FXRP ============
-    interface IERC20 {
-        function transferFrom(address from, address to, uint256 value) external returns (bool);
-        function transfer(address to, uint256 value) external returns (bool);
-        function balanceOf(address account) external view returns (uint256);
-        function allowance(address owner, address spender) external view returns (uint256);
-    }
-    
-    // ============ FTSO v2 Interface ============
-    // Based on Flare's FTSO v2 interface for Coston2 testnet
-    interface IFtsoV2 {
-        function getCurrentPrice() external view returns (
-            uint256 _price,
-            uint256 _timestamp,
-            uint256 _assetPriceUsdDecimals
-        );
-        function getPrice(uint256 _epochId) external view returns (
-            uint256 _price,
-            uint256 _timestamp,
-            uint256 _assetPriceUsdDecimals
-        );
-    }
     
     // ============ Structs ============
     struct Prediction {
@@ -113,7 +106,7 @@ contract PredictionDAOWithFlare is Ownable, ReentrancyGuard {
     }
     
     // ============ Constructor ============
-    constructor() {
+    constructor() Ownable(msg.sender) {
         isMember[msg.sender] = true;
         
         // Initialize FTSO contract addresses for common assets
@@ -442,4 +435,3 @@ contract PredictionDAOWithFlare is Ownable, ReentrancyGuard {
         emit StakeWithdrawn(_predictionId, msg.sender, amount);
     }
 }
-
